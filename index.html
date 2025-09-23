@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gradient Descent Illustration: Slope-only Linear Regression</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --panel: #f7f7f9;
+        --text: #1f2328;
+        --muted: #656d76;
+        --accent: #0d6efd;
+        --accent-2: #ff6b6b;
+        --grid: #e6e8eb;
+        --axis: #a0a6ad;
+        --point: #0a7b83;
+        --line: #8b5cf6;
+        --shadow: rgba(0,0,0,0.04);
+      }
+
+      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; line-height: 1.45; }
+      header { padding: 1rem 1.25rem 0.5rem; }
+      h1 { font-size: 1.25rem; margin: 0 0 0.25rem 0; }
+      .sub { color: var(--muted); font-size: 0.95rem; margin: 0.25rem 0 0 0; }
+      .controls { display: flex; flex-wrap: wrap; gap: 0.75rem 1rem; align-items: center; background: var(--panel); border: 1px solid var(--grid); box-shadow: 0 1px 0 var(--shadow); border-radius: 10px; padding: 0.75rem 1rem; margin: 0.5rem 1.25rem 1rem; }
+      .row { display: flex; gap: 0.5rem; align-items: center; }
+      input[type="range"] { width: min(56vw, 560px); }
+      .value-badge { font-variant-numeric: tabular-nums; background: #eef6ff; color: #0b62d6; border: 1px solid #cfe3ff; padding: 0.15rem 0.45rem; border-radius: 6px; }
+      .stats { display: flex; gap: 1rem; color: var(--muted); font-size: 0.95rem; }
+      .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; padding: 0 1.25rem 1.25rem; }
+      .panel { background: var(--panel); border: 1px solid var(--grid); border-radius: 12px; box-shadow: 0 1px 0 var(--shadow); padding: 0.75rem 0.75rem 0.25rem 0.75rem; display: flex; flex-direction: column; }
+      .panel h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.25rem 0.25rem; color: var(--muted); }
+      canvas { width: 100%; height: 360px; display: block; border-radius: 10px; background: #fff; border: 1px solid var(--grid); }
+      .equation { margin: 0.5rem 0.25rem 0.25rem; color: var(--muted); font-size: 0.95rem; }
+      footer { padding: 0.5rem 1.25rem 1.5rem; color: var(--muted); font-size: 0.9rem; }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } input[type="range"] { width: 100%; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Linear Regression as Minimization (Through Origin)</h1>
+    </header>
+
+    <section class="controls" aria-label="Controls">
+      <div class="row">
+        <label for="aSlider"><strong>a</strong> (slope):</label>
+        <input id="aSlider" type="range" min="-2" max="2" step="0.01" value="1.00" />
+        <span class="value-badge" id="aValue">a = 1.00</span>
+      </div>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>Left: Data and model y = a x</h2>
+        <canvas id="dataCanvas" width="800" height="480" aria-label="Data plot with points and line y=a x"></canvas>
+      </section>
+      <section class="panel">
+        <h2>Right: Objective MSE(a)</h2>
+        <canvas id="mseCanvas" width="800" height="480" aria-label="MSE(a) curve with current a"></canvas>
+        <div id="mseEquation" class="equation" aria-label="Equation of MSE as a function of a"></div>
+      </section>
+    </main>
+
+    <section class="controls" aria-label="Practice controls" style="margin-top: 0;">
+      <div class="row" style="gap: 0.75rem 1rem">
+        <strong>Practice:</strong>
+        <button id="practiceNewBtn">New practice</button>
+        <button id="practiceRevealBtn">Reveal solution</button>
+      </div>
+    </section>
+
+    <section class="layout" aria-label="Practice plots">
+      <section class="panel">
+        <h2>Practice — Data and y = a x</h2>
+        <canvas id="practiceDataCanvas" width="800" height="420" aria-label="Practice data plot"></canvas>
+      </section>
+      <section class="panel">
+        <h2>Practice — MSE(a)</h2>
+        <canvas id="practiceMseCanvas" width="800" height="420" aria-label="Practice MSE(a) plot"></canvas>
+        <div id="practiceEquation" class="equation" style="display:none" aria-live="polite"></div>
+      </section>
+    </section>
+
+    <script>
+      function setupHiDPICanvas(canvas) {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return ctx;
+      }
+
+      class Plot2D {
+        constructor(canvas, world) { this.canvas = canvas; this.world = { ...world }; this.ctx = setupHiDPICanvas(canvas); this.margin = { left: 40, right: 16, top: 16, bottom: 36 }; }
+        resize() { this.ctx = setupHiDPICanvas(this.canvas); }
+        get innerWidth() { const rect = this.canvas.getBoundingClientRect(); return rect.width - this.margin.left - this.margin.right; }
+        get innerHeight() { const rect = this.canvas.getBoundingClientRect(); return rect.height - this.margin.top - this.margin.bottom; }
+        xToPx(x) { const { xmin, xmax } = this.world; const t = (x - xmin) / (xmax - xmin); return this.margin.left + t * this.innerWidth; }
+        yToPx(y) { const { ymin, ymax } = this.world; const t = (y - ymin) / (ymax - ymin); return this.margin.top + (1 - t) * this.innerHeight; }
+        clear() { const { width, height } = this.canvas.getBoundingClientRect(); this.ctx.clearRect(0, 0, width, height); this.ctx.fillStyle = '#ffffff'; this.ctx.fillRect(0, 0, width, height); }
+        drawGrid(ticksX = 10, ticksY = 10) {
+          const ctx = this.ctx; const { xmin, xmax, ymin, ymax } = this.world; ctx.save(); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid'); ctx.lineWidth = 1;
+          const dx = (xmax - xmin) / ticksX; for (let i = 0; i <= ticksX; i++) { const x = xmin + i * dx; const px = this.xToPx(x); ctx.beginPath(); ctx.moveTo(px, this.margin.top); ctx.lineTo(px, this.margin.top + this.innerHeight); ctx.stroke(); }
+          const dy = (ymax - ymin) / ticksY; for (let j = 0; j <= ticksY; j++) { const y = ymin + j * dy; const py = this.yToPx(y); ctx.beginPath(); ctx.moveTo(this.margin.left, py); ctx.lineTo(this.margin.left + this.innerWidth, py); ctx.stroke(); }
+          ctx.restore();
+        }
+        drawAxes() { const ctx = this.ctx; ctx.save(); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--axis'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(this.margin.left, this.margin.top + this.innerHeight); ctx.lineTo(this.margin.left + this.innerWidth, this.margin.top + this.innerHeight); ctx.stroke(); ctx.beginPath(); ctx.moveTo(this.margin.left, this.margin.top); ctx.lineTo(this.margin.left, this.margin.top + this.innerHeight); ctx.stroke(); ctx.restore(); }
+        drawXTicks(count = 5, formatter = (v)=>v.toFixed(0)) { const ctx = this.ctx; const { xmin, xmax } = this.world; const y = this.margin.top + this.innerHeight + 16; ctx.save(); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted'); ctx.font = '12px system-ui, sans-serif'; for (let i = 0; i <= count; i++) { const t = i / count; const x = xmin + t * (xmax - xmin); const px = this.xToPx(x); ctx.textAlign = 'center'; ctx.fillText(formatter(x), px, y); } ctx.restore(); }
+        drawYTicks(count = 5, formatter = (v)=>v.toFixed(0)) { const ctx = this.ctx; const { ymin, ymax } = this.world; const x = this.margin.left - 8; ctx.save(); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted'); ctx.font = '12px system-ui, sans-serif'; for (let i = 0; i <= count; i++) { const t = i / count; const yv = ymin + t * (ymax - ymin); const py = this.yToPx(yv) + 4; ctx.textAlign = 'right'; ctx.fillText(formatter(yv), x, py); } ctx.restore(); }
+      }
+
+      const points = [ { x: 2, y: 2.5 }, { x: 7, y: 6.5 } ];
+      const worldLeft = { xmin: 0, xmax: 10, ymin: 0, ymax: 10 };
+      const worldRight = { xmin: -2, xmax: 2, ymin: 0, ymax: 12 };
+
+      const dataCanvas = document.getElementById('dataCanvas');
+      const mseCanvas = document.getElementById('mseCanvas');
+      const aSlider = document.getElementById('aSlider');
+      const aValue = document.getElementById('aValue');
+      const statsEl = document.getElementById('stats');
+      const mseEqEl = document.getElementById('mseEquation');
+
+      let dataPlot = new Plot2D(dataCanvas, worldLeft);
+      let msePlot = new Plot2D(mseCanvas, worldRight);
+
+      function mseOfWith(pts, a) { const n = pts.length; let s = 0; for (const p of pts) { const r = p.y - a * p.x; s += r * r; } return s / n; }
+      function mseOf(a) { return mseOfWith(points, a); }
+      function aStarWith(pts) { let sxx = 0, sxy = 0; for (const p of pts) { sxx += p.x * p.x; sxy += p.x * p.y; } return sxx === 0 ? 0 : sxy / sxx; }
+      function aStar() { return aStarWith(points); }
+
+      function format(num) { return Number(num).toFixed(2); }
+      function renderStats(a) { statsEl.innerHTML = `<span>MSE(a) = <strong>${format(mseOf(a))}</strong></span>`; }
+
+      function drawPoint(ctx, x, y) { ctx.save(); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--point'); ctx.strokeStyle = '#0a5f66'; ctx.lineWidth = 1.25; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); }
+
+      function drawLeftGeneric(plot, pts, a) {
+        const ctx = plot.ctx; plot.clear(); plot.drawGrid(10, 10); plot.drawAxes(); plot.drawXTicks(5); plot.drawYTicks(5);
+        ctx.save(); ctx.strokeStyle = '#ff9aa2'; ctx.setLineDash([6, 5]); ctx.lineWidth = 2;
+        for (const p of pts) { const px = plot.xToPx(p.x); const py = plot.yToPx(p.y); const pLine = plot.yToPx(a * p.x); ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, pLine); ctx.stroke(); }
+        ctx.restore();
+        ctx.save(); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--line'); ctx.lineWidth = 3;
+        const x0w = plot.world.xmin, x1w = plot.world.xmax; const x0 = plot.xToPx(x0w); const x1 = plot.xToPx(x1w); const y0 = plot.yToPx(a * x0w); const y1 = plot.yToPx(a * x1w);
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+        const label = `y = ${format(a)} x`; ctx.font = '12px system-ui, sans-serif'; let lx = x1 - 100; let ly = y1 - 8; const minX = plot.margin.left + 4; const maxX = plot.margin.left + plot.innerWidth - 100; const minY = plot.margin.top + 12; const maxY = plot.margin.top + plot.innerHeight - 4; lx = Math.max(minX, Math.min(maxX, lx)); ly = Math.max(minY, Math.min(maxY, ly)); ctx.save(); ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff'; ctx.strokeText(label, lx, ly); ctx.restore(); ctx.fillStyle = '#333'; ctx.fillText(label, lx, ly); ctx.restore();
+        for (const p of pts) { drawPoint(ctx, plot.xToPx(p.x), plot.yToPx(p.y)); }
+      }
+
+      function drawLeft(a) { drawLeftGeneric(dataPlot, points, a); }
+
+      function drawMarker(ctx, x, y) { ctx.save(); ctx.fillStyle = '#dc3545'; ctx.strokeStyle = '#b02a37'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); }
+      function drawMinMarker(ctx, x, y) { ctx.save(); ctx.fillStyle = '#22c55e'; ctx.strokeStyle = '#16a34a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 6, y + 5); ctx.lineTo(x - 6, y + 5); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); ctx.save(); ctx.strokeStyle = '#16a34a77'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, msePlot.margin.top + msePlot.innerHeight); ctx.stroke(); ctx.restore(); }
+      function roundRect(ctx, x, y, w, h, r) { const rr = Math.min(r, w/2, h/2); ctx.beginPath(); ctx.moveTo(x + rr, y); ctx.lineTo(x + w - rr, y); ctx.quadraticCurveTo(x + w, y, x + w, y + rr); ctx.lineTo(x + w, y + h - rr); ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h); ctx.lineTo(x + rr, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - rr); ctx.lineTo(x, y + rr); ctx.quadraticCurveTo(x, y, x + rr, y); ctx.closePath(); }
+      function drawMinLabel(ctx, plot, a, mse, text) { const x = plot.xToPx(a), y = plot.yToPx(mse); ctx.save(); ctx.font = '12px system-ui, sans-serif'; const padX = 6, padY = 4; const metrics = ctx.measureText(text); const w = metrics.width + padX * 2; const h = 16 + padY * 2; let rx = x + 8, ry = y - h - 6; const minX = plot.margin.left + 2, maxX = plot.margin.left + plot.innerWidth - w - 2, minY = plot.margin.top + 2, maxY = plot.margin.top + plot.innerHeight - h - 2; rx = Math.max(minX, Math.min(maxX, rx)); ry = Math.max(minY, Math.min(maxY, ry)); ctx.fillStyle = '#eef6ff'; ctx.strokeStyle = '#cfe3ff'; ctx.lineWidth = 1; roundRect(ctx, rx, ry, w, h, 6); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#0b62d6'; ctx.textBaseline = 'top'; ctx.fillText(text, rx + padX, ry + padY); ctx.restore(); }
+
+      function drawRightGeneric(plot, pts, a, showMinLabel = true) {
+        const ctx = plot.ctx; plot.clear(); const aMin = parseFloat(aSlider.min); const aMax = parseFloat(aSlider.max); const samples = 200; let minM = Infinity, maxM = -Infinity;
+        for (let i = 0; i <= samples; i++) { const t = i / samples; const aa = aMin + t * (aMax - aMin); const m = mseOfWith(pts, aa); if (m < minM) minM = m; if (m > maxM) maxM = m; }
+        const pad = 0.15 * (maxM - minM || 1); plot.world = { ...plot.world, xmin: aMin, xmax: aMax, ymin: Math.max(0, minM - pad), ymax: maxM + pad };
+        plot.drawGrid(10, 8); plot.drawAxes(); plot.drawXTicks(5, (v)=>v.toFixed(2)); plot.drawYTicks(5, (v)=>v.toFixed(1));
+        ctx.save(); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent'); ctx.lineWidth = 2.5; ctx.beginPath();
+        for (let i = 0; i <= samples; i++) { const t = i / samples; const aa = aMin + t * (aMax - aMin); const m = mseOfWith(pts, aa); const px = plot.xToPx(aa); const py = plot.yToPx(m); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+        ctx.stroke(); ctx.restore(); const mNow = mseOfWith(pts, a); drawMarker(ctx, plot.xToPx(a), plot.yToPx(mNow)); const as = aStarWith(pts); const ms = mseOfWith(pts, as); drawMinMarker(ctx, plot.xToPx(as), plot.yToPx(ms)); if (showMinLabel) drawMinLabel(ctx, plot, as, ms, `a* = ${format(as)}`);
+      }
+
+      function drawRight(a) { drawRightGeneric(msePlot, points, a, true); }
+      function renderEquation() { const terms = points.map(p => `(${format(p.y)} − a·${format(p.x)})<sup>2</sup>`).join(' + '); mseEqEl.innerHTML = `y = MSE(a) = (1/${points.length})[ ${terms} ]`; }
+      function renderAll() { const a = parseFloat(aSlider.value); aValue.textContent = `a = ${format(a)}`; renderStats(a); drawLeft(a); drawRight(a); renderEquation(); }
+
+      const practiceDataCanvas = document.getElementById('practiceDataCanvas');
+      const practiceMseCanvas = document.getElementById('practiceMseCanvas');
+      const practiceEquationEl = document.getElementById('practiceEquation');
+      const practiceNewBtn = document.getElementById('practiceNewBtn');
+      const practiceRevealBtn = document.getElementById('practiceRevealBtn');
+      let practicePoints = [ { x: 1.5, y: 1.0 }, { x: 8.0, y: 7.5 } ];
+      let practiceA = 1.0;
+      let practiceDataPlot = new Plot2D(practiceDataCanvas, { xmin: 0, xmax: 10, ymin: 0, ymax: 10 });
+      let practiceMsePlot = new Plot2D(practiceMseCanvas, { xmin: -2, xmax: 2, ymin: 0, ymax: 12 });
+      function randomPractice() { const n = Math.random() < 0.5 ? 2 : 3; const xs = [ +(1 + Math.random() * 3).toFixed(1), +(7 + Math.random() * 2).toFixed(1) ]; const aTrue = +(0.5 + Math.random() * 1.2).toFixed(2); const ys = xs.map(x => +(aTrue * x + (Math.random()*2 - 1)).toFixed(1)); if (n === 3) { const x3 = +(4 + Math.random() * 2).toFixed(1); xs.push(x3); ys.push( +(aTrue * x3 + (Math.random()*2 - 1)).toFixed(1) ); } practicePoints = xs.map((x, i) => ({ x, y: ys[i] })); let sxx=0, sxy=0; for(const p of practicePoints){ sxx+=p.x*p.x; sxy+=p.x*p.y; } practiceA = +(sxx === 0 ? 0 : sxy/sxx).toFixed(2); }
+      function drawLeftPractice(a) { drawLeftGeneric(practiceDataPlot, practicePoints, a); }
+      function drawRightPractice(a) { drawRightGeneric(practiceMsePlot, practicePoints, a, true); }
+      function renderPractice() { drawLeftPractice(practiceA); drawRightPractice(practiceA); }
+      function renderPracticeEquation() { const n = practicePoints.length; const terms = practicePoints.map(p => `(${p.y.toFixed(2)} − a·${p.x.toFixed(2)})<sup>2</sup>`).join(' + '); practiceEquationEl.innerHTML = `y = MSE(a) = (1/${n})[ ${terms} ]`; }
+      practiceNewBtn.addEventListener('click', () => { randomPractice(); practiceEquationEl.style.display = 'none'; renderPractice(); });
+      practiceRevealBtn.addEventListener('click', () => { renderPracticeEquation(); practiceEquationEl.style.display = ''; });
+
+      function onResize() { dataPlot.resize(); msePlot.resize(); practiceDataPlot.resize(); practiceMsePlot.resize(); renderAll(); renderPractice(); }
+      window.addEventListener('resize', onResize);
+      aSlider.addEventListener('input', renderAll);
+      aSlider.value = aStar().toFixed(2);
+      renderAll();
+      randomPractice();
+      renderPractice();
+    </script>
+  </body>
+  </html>
