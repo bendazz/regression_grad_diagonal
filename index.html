@@ -146,7 +146,20 @@
         const x0w = plot.world.xmin, x1w = plot.world.xmax; const x0 = plot.xToPx(x0w); const x1 = plot.xToPx(x1w); const y0 = plot.yToPx(a * x0w); const y1 = plot.yToPx(a * x1w);
         ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
         const label = `y = ${format(a)} x`; ctx.font = '12px system-ui, sans-serif'; let lx = x1 - 100; let ly = y1 - 8; const minX = plot.margin.left + 4; const maxX = plot.margin.left + plot.innerWidth - 100; const minY = plot.margin.top + 12; const maxY = plot.margin.top + plot.innerHeight - 4; lx = Math.max(minX, Math.min(maxX, lx)); ly = Math.max(minY, Math.min(maxY, ly)); ctx.save(); ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff'; ctx.strokeText(label, lx, ly); ctx.restore(); ctx.fillStyle = '#333'; ctx.fillText(label, lx, ly); ctx.restore();
-        for (const p of pts) { drawPoint(ctx, plot.xToPx(p.x), plot.yToPx(p.y)); }
+        for (const p of pts) {
+          const px = plot.xToPx(p.x);
+          const py = plot.yToPx(p.y);
+          drawPoint(ctx, px, py);
+          // Draw label with coordinates
+          ctx.save();
+          ctx.font = '12px system-ui, sans-serif';
+          ctx.fillStyle = '#333';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          const label = `(${p.x}, ${p.y})`;
+          ctx.fillText(label, px + 10, py);
+          ctx.restore();
+        }
       }
 
       function drawLeft(a) { drawLeftGeneric(dataPlot, points, a); }
